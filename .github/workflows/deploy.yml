@@ -1,0 +1,121 @@
+name: Deploy App via SnowCLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      snowflake_account:
+        description: 'Snowflake Account'
+        required: true
+      snowflake_user:
+        description: 'Snowflake User'
+        required: true
+      snowflake_password:
+        description: 'Snowflake Password'
+        required: true
+      snowflake_role:
+        description: 'Snowflake Role'
+        required: true
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.8
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install SnowCLI
+        run: |
+          pip install snowflake-cli-labs~=2.5.0
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> $GITHUB_ENV
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+      - name: Verify SnowCLI installation
+        run: echo $PATH
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Set environment variables
+        run: |
+          export DATABASE=$(yq -e eval '.streamlit.database' snowflake.yml)
+          export SCHEMA=$(yq -e eval '.streamlit.schema' snowflake.yml)
+          echo "DATABASE=$DATABASE" >> $GITHUB_ENV
+          echo "SCHEMA=$SCHEMA" >> $GITHUB_ENV
+
+      - name: Create SnowCLI config
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ github.event.inputs.snowflake_account }}
+          SNOWFLAKE_USER: ${{ github.event.inputs.snowflake_user }}
+          SNOWFLAKE_PASSWORD: ${{ github.event.inputs.snowflake_password }}
+          SNOWFLAKE_ROLE: ${{ github.event.inputs.snowflake_role }}
+        run: |
+          mkdir -p ~/.snowflake
+          cat << EOF > ~/.snowflake/config.toml
+          [connections.default]
+          account = "$SNOWFLAKE_ACCOUNT"
+          user = "$SNOWFLAKE_USER"
+          password = "$SNOWFLAKE_PASSWORD"
+          connection_timeout = 600
+          database = "$DATABASE"
+          schema = "$SCHEMA"
+          role = "$SNOWFLAKE_ROLE"
+          EOF
+          chmod 0600 ~/.snowflake/config.toml
+
+      - name: Upload all files directly to the Snowflake stage
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ github.event.inputs.snowflake_account }}
+          SNOWFLAKE_USER: ${{ github.event.inputs.snowflake_user }}
+          SNOWFLAKE_PASSWORD: ${{ github.event.inputs.snowflake_password }}
+          SNOWFLAKE_ROLE: ${{ github.event.inputs.snowflake_role }}
+        run: |
+          python - <<EOF
+          import snowflake.connector
+          import os
+
+          # Connect to Snowflake
+          ctx = snowflake.connector.connect(
+              user=os.getenv('SNOWFLAKE_USER'),
+              password=os.getenv('SNOWFLAKE_PASSWORD'),
+              account=os.getenv('SNOWFLAKE_ACCOUNT'),
+              role=os.getenv('SNOWFLAKE_ROLE'),
+              database=os.getenv('DATABASE'),
+              schema=os.getenv('SCHEMA')
+          )
+          cs = ctx.cursor()
+          try:
+              # Define the base directory where the files are located
+              base_dir = os.getcwd()
+
+              # Debugging - list all files in the current directory
+              print("Current working directory:", os.getcwd())
+              print("Files in the directory:", os.listdir(os.getcwd()))
+
+              # Upload each file in the directory to the specific Snowflake stage and folder
+              for file in os.listdir(base_dir):
+                  file_path = os.path.join(base_dir, file)
+                  if os.path.isfile(file_path):  # Ensure it's a file and not a directory
+                      print(f"Uploading {file_path}")
+                      cs.execute(f"PUT file://{file_path} @STREAMLIT_DASHBOARD_STAGE.PUBLIC/ AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+                  else:
+                      print(f"Skipping directory: {file_path}")
+
+          finally:
+              cs.close()
+              ctx.close()
+          EOF
+
+      - name: Deploy the Streamlit app
+        shell: bash
+        run: |
+          snow streamlit deploy --debug --replace >> $GITHUB_STEP_SUMMARY

@@ -1,42 +1,15 @@
-import yaml
 import streamlit as st
-import snowflake.connector
 import pandas as pd
-
-# Function to load Snowflake connection details from snowflake.yml
-def load_snowflake_config():
-    with open('snowflake.yml', 'r') as f:
-        config = yaml.safe_load(f)
-    return config
-
-# Load Snowflake configuration
-snowflake_config = load_snowflake_config()
+from functions import st_read_from_snowflake, st_execute_query_on_snowflake
 
 # Function to fetch data from the EXTRA_TABLES table
 def get_extra_tables_data():
-    conn = snowflake.connector.connect(
-        user=snowflake_config['streamlit']['sf_user'],
-        password=snowflake_config['streamlit']['sf_password'],
-        account=snowflake_config['streamlit']['sf_account'],
-        warehouse=snowflake_config['streamlit']['query_warehouse'],
-        database=snowflake_config['streamlit']['database'],
-        schema=snowflake_config['streamlit']['schema']
-    )
     query = "SELECT * FROM EXTRA_TABLES"
-    df = pd.read_sql(query, conn)
-    conn.close()
+    df = st_read_from_snowflake(query)
     return df
 
 # Function to get the top 5 users from Snowflake
 def get_top_5_users():
-    conn = snowflake.connector.connect(
-        user=snowflake_config['streamlit']['sf_user'],
-        password=snowflake_config['streamlit']['sf_password'],
-        account=snowflake_config['streamlit']['sf_account'],
-        warehouse=snowflake_config['streamlit']['query_warehouse'],
-        database=snowflake_config['streamlit']['database'],
-        schema=snowflake_config['streamlit']['schema']
-    )
     query = """
     SELECT
         user_name,
@@ -57,8 +30,7 @@ def get_top_5_users():
     LIMIT
         5
     """
-    df = pd.read_sql(query, conn)
-    conn.close()
+    df = st_read_from_snowflake(query)
     return df
 
 # Main Streamlit App

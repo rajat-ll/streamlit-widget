@@ -72,7 +72,7 @@ jobs:
           EOF
           chmod 0600 ~/.snowflake/config.toml
 
-      - name: Create schema and upload all files directly to the Snowflake stage
+      - name: Create stage and upload all files to the Snowflake stage
         env:
           SNOWFLAKE_ACCOUNT: ${{ github.event.inputs.snowflake_account }}
           SNOWFLAKE_USER: ${{ github.event.inputs.snowflake_user }}
@@ -94,9 +94,9 @@ jobs:
           )
           cs = ctx.cursor()
           try:
-              # Check if schema exists and create it if it doesn't
-              create_schema_query = "CREATE SCHEMA IF NOT EXISTS LL_PROD_RAW_ZONE.STREAMLIT_DASHBOARD_STAGE"
-              cs.execute(create_schema_query)
+              # Create the stage if it doesn't exist
+              create_stage_query = "CREATE STAGE IF NOT EXISTS LL_PROD_RAW_ZONE.PUBLIC.STREAMLIT_DASHBOARD_STAGE"
+              cs.execute(create_stage_query)
 
               # Define the base directory where the files are located
               base_dir = os.getcwd()
@@ -110,7 +110,7 @@ jobs:
                   file_path = os.path.join(base_dir, file)
                   if os.path.isfile(file_path):  # Ensure it's a file and not a directory
                       print(f"Uploading {file_path}")
-                      cs.execute(f"PUT file://{file_path} @LL_PROD_RAW_ZONE.STREAMLIT_DASHBOARD_STAGE.PUBLIC/ AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+                      cs.execute(f"PUT file://{file_path} @LL_PROD_RAW_ZONE.PUBLIC.STREAMLIT_DASHBOARD_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
                   else:
                       print(f"Skipping directory: {file_path}")
 
